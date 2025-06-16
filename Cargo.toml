@@ -1,0 +1,12 @@
+[package]
+name = "obshared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "0.19"
+winit = "0.29"
+pollster = "0.3"
+image = "0.24"
+screenshots = "0.6"
+tokio = { version = "1.0", features = ["full"] }
