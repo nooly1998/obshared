@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-trace_func = {path = "trace_func"}
-winapi = "0.3.9"
+#trace_func = {path = "trace_func"}
+winapi = { version = "0.3.9", features = ["winuser"] }
 yuv = "0.8.5"
 scap = "0.0.8"
 image = "0.24"

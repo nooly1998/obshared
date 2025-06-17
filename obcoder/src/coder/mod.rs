@@ -13,14 +13,14 @@ use ffmpeg_next as ff;
 /// # Errors
 ///
 /// 当没有找到任何可用的编码器时返回错误
-pub fn encoder() -> Result<ff::Codec,dyn std::error::Error>{
+pub fn encoder() -> Result<ff::Codec,Box<dyn std::error::Error>>{
     let hws = hw::get_hw_accel_encoder();
     for hw in hws{
         if let Some(encoder) = ff::encoder::find_by_name(hw){
             return Ok(encoder);
         };
     }
-    Err("can not found Encoder Codec!")
+    Err(Box::from("can not found Encoder Codec!"))
 }
 
 /// 获取当前平台支持的硬件加速解码器
@@ -35,12 +35,12 @@ pub fn encoder() -> Result<ff::Codec,dyn std::error::Error>{
 /// # Errors
 ///
 /// 当没有找到任何可用的解码器时返回错误
-pub fn decoder() -> Result<ff::Codec, dyn std::error::Error>{
+pub fn decoder() -> Result<Box<ff::Codec>,Box<dyn std::error::Error>>{
     let hws = hw::get_hw_accel_decoder();
     for hw in hws{
         if let Some(decoder) = ff::decoder::find_by_name(hw){
-            return Ok(decoder)
+            return Ok(Box::from(decoder));
         };
     }
-    Err("can not found Decoder Codec!")
+    Err(Box::from("can not found Decoder Codec!"))
 }
