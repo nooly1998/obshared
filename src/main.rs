@@ -1,221 +1,129 @@
+mod cap;
+mod img;
+mod screen;
 
-use std::sync::Arc;
+use img::save_frame_as_png;
+use scap::capturer::{Capturer, Options};
+use scap::frame::Frame;
+use std::any::Any;
 use tokio::time::{interval, Duration};
-use tokio::sync::oneshot;
+use trace_func::instrument;
+use screen::get_screen_size;
+use crate::cap::bgra_to_rgba;
 
 struct ScreenCapture {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
-    texture: wgpu::Texture,
-    buffer: wgpu::Buffer,
-    width: u32,
-    height: u32,
+    capture: Capturer,
+    width: f64,
+    height: f64,
     bytes_per_row: u32,
 }
 
 impl ScreenCapture {
-    async fn new(width: u32, height: u32) -> Self {
-        println!("初始化 GPU 设备，目标尺寸: {}x{}", width, height);
-
-        // 创建 wgpu 实例
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+    #[instrument]
+    async fn new(width: f64, height: f64) -> Self {
+        let options = Options {
+            fps: 60,
+            target: None, // None captures the primary display
+            show_cursor: true,
+            show_highlight: true,
+            excluded_targets: None,
+            output_type: scap::frame::FrameType::BGRAFrame,
+            output_resolution: scap::capturer::Resolution::Captured,
+            // crop_area: Some(Area {
+            //     origin: Point { x: 0.0, y: 0.0 },
+            //     size: Size {
+            //         width,
+            //         height,
+            //     },
+            // }),
             ..Default::default()
-        });
-
-        // 获取适配器
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
-
-        // 创建设备和队列
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Screen Capture Device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .unwrap();
-
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
-
-        // 计算对齐的 bytes_per_row (必须是 256 的倍数)
-        let unpadded_bytes_per_row = 4 * width;
-        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let bytes_per_row = (unpadded_bytes_per_row + alignment - 1) / alignment * alignment;
-
-        println!("bytes_per_row: {} (未对齐: {})", bytes_per_row, unpadded_bytes_per_row);
-
-        // 创建纹理用于存储屏幕截图
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Screen Capture Texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-
-        // 创建缓冲区用于读取纹理数据
-        let buffer_size = (bytes_per_row * height) as u64;
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Screen Capture Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
+        };
+        let mut capture = Capturer::build(options).expect("can not build Capturer");
+        capture.start_capture();
+        let cap = get_screen_size();
         Self {
-            device,
-            queue,
-            texture,
-            buffer,
-            width,
-            height,
-            bytes_per_row,
+            capture,
+            width:cap.0 as f64,
+            height:cap.1 as f64,
+            bytes_per_row: cap.0 as u32 * 4,
         }
     }
 
-    async fn capture_frame(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // 使用 screenshots crate 获取屏幕截图
-        let screen = screenshots::Screen::all()?[0];
-        let image = screen.capture()?;
+    pub fn get_desktop_capture_size(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
 
-        // 获取实际的图像尺寸
-        let actual_width = image.width();
-        let actual_height = image.height();
-
-        println!("实际截图尺寸: {}x{}, 期望尺寸: {}x{}",
-                 actual_width, actual_height, self.width, self.height);
-
-        // 检查尺寸是否匹配
-        if actual_width != self.width || actual_height != self.height {
-            return Err(format!(
-                "截图尺寸不匹配！实际: {}x{}, 期望: {}x{}",
-                actual_width, actual_height, self.width, self.height
-            ).into());
+        // 获取第一帧来确定实际捕获尺寸
+        let frame = self.capture.get_next_frame()?;
+        match frame {
+            Frame::BGRA(frame) =>{
+                Ok((frame.width as f64, frame.height as f64))
+            },
+            _ => {
+                Err(Box::from("get captrue size failed!"))
+            }
         }
 
-        let image_data = image.rgba();
+    }
 
-        // 直接使用原始图像数据，不进行额外的填充处理
-        // 因为 write_texture 会自动处理对齐
-        self.queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image_data,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * self.width), // 使用原始的 bytes_per_row
-                rows_per_image: Some(self.height),
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-        );
 
-        // 创建命令编码器
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Screen Capture Encoder"),
-        });
-
-        // 将纹理数据复制到缓冲区 - 这里需要使用对齐的 bytes_per_row
-        encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                texture: &self.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyBuffer {
-                buffer: &self.buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(self.bytes_per_row), // 使用对齐的值
-                    rows_per_image: Some(self.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        // 提交命令
-        self.queue.submit(std::iter::once(encoder.finish()));
-
-        // 映射缓冲区并读取数据
-        let buffer_slice = self.buffer.slice(..);
-        let (sender, receiver) = oneshot::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |v| {
-            let _ = sender.send(v);
-        });
-
-        self.device.poll(wgpu::Maintain::Wait);
-        receiver.await.unwrap()?;
-
-        let data = buffer_slice.get_mapped_range();
-
-        // 处理填充的数据，只提取实际的像素数据
-        let mut result = Vec::with_capacity((self.width * self.height * 4) as usize);
-        let unpadded_bytes_per_row = (self.width * 4) as usize;
-        let padded_bytes_per_row = self.bytes_per_row as usize;
-
-        for row in 0..self.height {
-            let start = (row as usize) * padded_bytes_per_row;
-            let end = start + unpadded_bytes_per_row;
-            result.extend_from_slice(&data[start..end]);
+    async fn init(width: f64, height: f64) -> Result<Self, Box<dyn std::error::Error>> {
+        if !scap::is_supported() {
+            println!("❌ Platform not supported");
+            return Err(Box::from("Platform not supported!"));
         }
 
-        drop(data);
-        self.buffer.unmap();
+        if !scap::has_permission() {
+            println!("❌ Permission not granted. Requesting permission...");
+            if !scap::request_permission() {
+                println!("❌ Permission denied");
+                return Err(Box::from("Permission denied!"));
+            }
+        }
 
-        Ok(result)
+        Ok(Self::new(width, height).await)
+    }
+
+    #[instrument]
+    fn get_capture(&mut self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let frame = self.capture.get_next_frame()?;
+        match frame {
+            Frame::BGRA(frame) => {
+                let buffer = frame.data;
+                let width = frame.width;
+                let height = frame.height;
+                self.width = width as f64;
+                self.height = height as f64;
+                self.bytes_per_row = (width * 4) as u32;
+                Ok(buffer)
+            }
+            _ => Err(Box::from("can not match frame type!")),
+        }
+    }
+
+    #[instrument]
+    async fn capture_frame(&mut self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let image = self.get_capture()?;
+        Ok(image)
+    }
+
+    async fn close(&mut self) {
+        self.capture.stop_capture();
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 使用实际的截图尺寸来创建捕获实例
+    let mut capture = ScreenCapture::init(0.0,0.0).await?;
+
     println!("开始初始化屏幕捕获...");
-
-    // 首先获取一张测试截图来确定实际尺寸
-    let screens = screenshots::Screen::all()?;
-    let screen = &screens[0];
-
-    println!("显示器信息: {}x{}", screen.display_info.width, screen.display_info.height);
-
-    // 获取一张测试截图来确定实际尺寸
-    let test_image = screen.capture()?;
-    let actual_width = test_image.width();
-    let actual_height = test_image.height();
+    let (actual_width,actual_height) = capture.get_desktop_capture_size()?;
+    println!(
+        "显示器信息: {}x{}",
+        actual_width, actual_height
+    );
 
     println!("实际截图尺寸: {}x{}", actual_width, actual_height);
 
-    // 使用实际的截图尺寸来创建捕获实例
-    let capture = ScreenCapture::new(actual_width, actual_height).await;
 
     // 设置捕获帧率 (30 FPS)
     let mut interval = interval(Duration::from_millis(33));
@@ -227,13 +135,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         interval.tick().await;
 
         match capture.capture_frame().await {
-            Ok(frame_data) => {
+            Ok(mut frame_data) => {
                 frame_count += 1;
-                println!("捕获第 {} 帧，数据大小: {} 字节", frame_count, frame_data.len());
+                println!(
+                    "捕获第 {} 帧，数据大小: {} 字节",
+                    frame_count,
+                    frame_data.len()
+                );
 
                 // 示例：保存前10帧为PNG文件
                 if frame_count <= 10 {
-                    save_frame_as_png(&frame_data, actual_width, actual_height, frame_count)?;
+                    bgra_to_rgba(&mut frame_data);
+                    save_frame_as_png(&frame_data, actual_width as u32, actual_height as u32, frame_count)?;
                 }
 
                 // 演示用：捕获100帧后退出
@@ -247,20 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
+    capture.close().await;
     println!("视频流捕获完成！");
-    Ok(())
-}
-
-fn save_frame_as_png(data: &[u8], width: u32, height: u32, frame_num: u32) -> Result<(), Box<dyn std::error::Error>> {
-    use image::{ImageBuffer, Rgba};
-
-    let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, data.to_vec())
-        .ok_or("无法创建图像缓冲区")?;
-
-    let filename = format!("frame_{:03}.png", frame_num);
-    img.save(&filename)?;
-    println!("保存帧: {}", filename);
-
     Ok(())
 }
