@@ -1,15 +1,14 @@
-mod cap;
+
 mod img;
 mod screen;
 
-use img::save_frame_as_png;
 use scap::capturer::{Capturer, Options};
 use scap::frame::Frame;
 use std::any::Any;
 use tokio::time::{interval, Duration};
-use trace_func::instrument;
+
 use screen::get_screen_size;
-use crate::cap::bgra_to_rgba;
+
 
 struct ScreenCapture {
     capture: Capturer,
@@ -19,7 +18,7 @@ struct ScreenCapture {
 }
 
 impl ScreenCapture {
-    #[instrument]
+
     async fn new(width: f64, height: f64) -> Self {
         let options = Options {
             fps: 60,
@@ -82,7 +81,7 @@ impl ScreenCapture {
         Ok(Self::new(width, height).await)
     }
 
-    #[instrument]
+
     fn get_capture(&mut self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let frame = self.capture.get_next_frame()?;
         match frame {
@@ -99,7 +98,7 @@ impl ScreenCapture {
         }
     }
 
-    #[instrument]
+
     async fn capture_frame(&mut self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let image = self.get_capture()?;
         Ok(image)
@@ -143,10 +142,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     frame_data.len()
                 );
 
-                // 示例：保存前10帧为PNG文件
                 if frame_count <= 10 {
-                    bgra_to_rgba(&mut frame_data);
-                    save_frame_as_png(&frame_data, actual_width as u32, actual_height as u32, frame_count)?;
+                    //TODO: to stream
                 }
 
                 // 演示用：捕获100帧后退出

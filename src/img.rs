@@ -1,7 +1,5 @@
-use trace_func::instrument;
 use yuv::*;
 
-#[instrument]
 pub fn save_frame_as_png(
     data: &[u8],
     width: u32,
