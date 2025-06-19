@@ -1,2 +1,2 @@
-mod coder;
-mod stream;
+pub mod coder;
+pub mod stream;

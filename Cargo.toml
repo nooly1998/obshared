@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-#trace_func = {path = "trace_func"}
+trace_func = {path = "trace_func"}
+obcoder = {path = "obcoder"}
 winapi = { version = "0.3.9", features = ["winuser"] }
-yuv = "0.8.5"
 scap = "0.0.8"
 image = "0.24"
 tokio = { version = "1.0", features = ["full"] }

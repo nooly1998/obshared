@@ -17,6 +17,7 @@ pub fn encoder() -> Result<ff::Codec,Box<dyn std::error::Error>>{
     let hws = hw::get_hw_accel_encoder();
     for hw in hws{
         if let Some(encoder) = ff::encoder::find_by_name(hw){
+            println!("Codec：{:?} used",hw);
             return Ok(encoder);
         };
     }
@@ -39,6 +40,7 @@ pub fn decoder() -> Result<Box<ff::Codec>,Box<dyn std::error::Error>>{
     let hws = hw::get_hw_accel_decoder();
     for hw in hws{
         if let Some(decoder) = ff::decoder::find_by_name(hw){
+            println!("Codec：{:?} used",hw);
             return Ok(Box::from(decoder));
         };
     }
