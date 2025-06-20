@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 ffmpeg-next = "7.1.0"
 ringbuf = { version = "0.4.8", features = ["alloc"] }
+ff = "0.14.0-pre.0"
