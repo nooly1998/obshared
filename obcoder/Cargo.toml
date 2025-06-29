@@ -2,8 +2,11 @@
 name = "obcoder"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
-ffmpeg-next = "7.1.0"
-ringbuf = { version = "0.4.8", features = ["alloc"] }
-ff = "0.14.0-pre.0"
+libc = "0.2.174"
+
+[build-dependencies]
+pkg-config = "0.3.32"
+bindgen = "0.72.0"

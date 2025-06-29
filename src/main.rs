@@ -2,17 +2,9 @@ mod img;
 mod nv12;
 mod screen;
 mod capture;
-
-use crate::nv12::NV12Organizer;
-use scap::capturer::{Area, Capturer, Options, Point, Size};
-use scap::frame::{Frame, FrameType};
-use screen::get_screen_size;
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
-use obcoder::stream::encoder::ObEncoderVideo;
-use obcoder::stream::obstream::ObStream;
-use trace_func::instrument;
+use obcoder::ObStream;
 use crate::capture::screencap::ScreenCapture;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
